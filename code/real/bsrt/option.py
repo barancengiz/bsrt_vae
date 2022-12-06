@@ -18,6 +18,8 @@ parser.add_argument('--swinfeature', action='store_true',
                     help='use swin transformer to extract features')
 parser.add_argument('--model_level', type=str, default='S',
                     help='S: small, L: large')
+parser.add_argument('--reconstruction_loss_factor', action='store_true',
+                    help='weight of MSE (vs KL divergence)')
 
 ################## fine-tune ##################
 parser.add_argument('--finetune', action='store_true',

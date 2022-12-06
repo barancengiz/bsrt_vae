@@ -36,7 +36,8 @@ def main_worker(local_rank, nprocs, args):
     _model = model.Model(args, checkpoint)
 
     tt = []
-    for idx in tqdm(range(len(dataset))):
+    # for idx in tqdm(range(len(dataset))):
+    for idx in tqdm(range(1)):
         burst, meta_info = dataset[idx]
         burst_name = meta_info['burst_name']
 
@@ -49,9 +50,12 @@ def main_worker(local_rank, nprocs, args):
             tt.append(toc-tic)
 
         # Normalize to 0  2^14 range and convert to numpy array
-        net_pred_np = (sr.squeeze(0).permute(1, 2, 0).clamp(0.0, 1.0) * 2 ** 14).cpu().numpy().astype(np.uint16)
+        # net_pred_np = (sr.squeeze(0).permute(1, 2, 0).clamp(0.0, 1.0) * 2 ** 14).cpu().numpy().astype(np.uint16)
+        net_pred_np = (sr.squeeze(0).permute(1, 2, 0).clamp(0.0, 1.0) * (2 ** 14-1)).cpu().numpy().astype(np.uint8)
         cv2.imwrite('{}/{}.png'.format(out_dir, burst_name), net_pred_np)
-
+        cv2.imshow("sr", net_pred_np)
+        cv2.waitKey()
+        cv2.destroyAllWindows()
     print('avg time: {:.4f}'.format(np.mean(tt)))
     utility.cleanup()
 

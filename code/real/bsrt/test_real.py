@@ -39,7 +39,7 @@ def main_worker(local_rank, nprocs, args):
     torch.cuda.set_device(local_rank)
 
     dataset = BurstSRDataset(root=args.root, burst_size=14, crop_sz=80, split='val')
-    out_dir = 'val/bsrt_real'
+    out_dir = 'val/bsrt_real_vae_view'
 
     _model = model.Model(args, checkpoint)
 
@@ -69,7 +69,7 @@ def main_worker(local_rank, nprocs, args):
 
         with torch.no_grad():
             tic = time.time()
-            sr = _model(burst_, 0).float()
+            sr, mu, log_var = [x.float() for x in _model(burst_, 0)]
             toc = time.time()
             tt.append(toc-tic)
 
@@ -81,21 +81,32 @@ def main_worker(local_rank, nprocs, args):
             ssims.append(ssim.item())
             lpipss.append(lpips.item())
 
-        # lrs = burst_[0]
-        # os.makedirs(f'{out_dir}/{name}', exist_ok=True)
-        # for i, lr in enumerate(lrs):
-        #     # print(lr[[0, 1, 3],...].shape)
-        #     lr = postprocess_fn.process(lr[[0, 1, 3],...], meta_info_burst)
-        #     lr = cv2.cvtColor(lr, cv2.COLOR_RGB2BGR)
-        #     cv2.imwrite('{}/{}/{:2d}.png'.format(out_dir, name, i), lr)
+            # sr_np = sr.permute(2, 3, 1, 0)
+            # sr_np = torch.squeeze(sr_np)
+            # sr_np = sr_np.cpu().numpy()
+            # sr_norm = np.uint8(sr_np * 255 / sr_np.max()) 
+            # sr_bgr = im_bgr = cv2.cvtColor(sr_norm, cv2.COLOR_RGB2BGR) 
+            # cv2.imshow("sr", sr_bgr)  # TODO: RGB2BR
+            # cv2.waitKey()
+            # cv2.destroyAllWindows()
 
-        # gt = postprocess_fn.process(gt[0], meta_info_burst)
-        # gt = cv2.cvtColor(gt, cv2.COLOR_RGB2BGR)
+        lrs = burst_[0]
+        os.makedirs(f'{out_dir}/{name}', exist_ok=True)
+        for i, lr in enumerate(lrs):
+            # print(lr[[0, 1, 3],...].shape)
+            lr = postprocess_fn.process(lr[[0, 1, 3],...], meta_info_burst)
+            lr = cv2.cvtColor(lr, cv2.COLOR_RGB2BGR)
+            cv2.imwrite('{}/{}/{:2d}.png'.format(out_dir, name, i), lr)
+
+        gt = postprocess_fn.process(gt[0], meta_info_gt)
+        gt = cv2.cvtColor(gt, cv2.COLOR_RGB2BGR)
         # cv2.imwrite('{}/{}_gt.png'.format(out_dir, name), gt)
+        cv2.imwrite('{}/{}/gt.png'.format(out_dir, name), gt)
 
-        # sr_ = postprocess_fn.process(sr[0], meta_info_burst)
-        # sr_ = cv2.cvtColor(sr_, cv2.COLOR_RGB2BGR)
+        sr_ = postprocess_fn.process(sr[0], meta_info_gt)
+        sr_ = cv2.cvtColor(sr_, cv2.COLOR_RGB2BGR)
         # cv2.imwrite('{}/{}_bsrt.png'.format(out_dir, name), sr_)
+        cv2.imwrite('{}/{}/bsrt.png'.format(out_dir, name), sr_)
 
         del burst_
         del sr
