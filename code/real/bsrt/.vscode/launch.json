@@ -1,0 +1,93 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "args": [
+                "--n_GPUs", "1",
+                "--model", "BSRT",
+                "--model_level", "L",
+                "--swinfeature",
+                "--batch_size", "1",
+                "--burst_size", "14",
+                "--patch_size", "80",
+                "--pre_train", "/media/baran/DATA/METU/Burst_SR/BSRT/code/real/train_log/bsrt/real_models/bsrt_tiny/bsrtbest_epoch.pth",
+                "--root", "/media/baran/DATA/datasets/BURST_SR/burstsr_dataset"
+            ],
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "args": [
+                "--n_GPUs", "1",
+                "--model", "BSRT",
+                "--model_level", "S",
+                "--swinfeature",
+                "--batch_size", "1",
+                "--burst_size", "14",
+                "--patch_size", "80",
+                "--pre_train", "./model/bsrt_small_realworld.pth",
+                "--root", "/media/baran/DATA/datasets/BURST_SR/burstsr_dataset"
+            ],
+            "name": "BSRT-small",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "args": [
+                "--n_GPUs", "1",
+                "--model", "BSRT",
+                "--model_level", "S",
+                "--swinfeature",
+                "--batch_size", "1",
+                "--burst_size", "14",
+                "--patch_size", "80",
+                "--pre_train", "/media/baran/DATA/METU/Burst_SR/BSRT/code/real/train_log/bsrt/real_models/bsrt_tiny_vae_mse_z50/bsrtbest_epoch.pth",
+                "--root", "/media/baran/DATA/datasets/BURST_SR/burstsr_dataset"
+            ],
+            "name": "Test-BSRT-VAE",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "args": [
+                "--print_every", "20",
+                // "--lr", "0.00005",
+                "--lr", "0.0000005",
+                "--decay", "40-80",
+                "--save", "bsrt_tiny_vae_mse_z50",
+                "--n_GPUs", "1",
+                "--model", "BSRT",
+                "--model_level", "S",
+                "--swinfeature",
+                "--batch_size", "3",  // 8
+                "--burst_size", "14",
+                "--patch_size", "80",
+                "--pre_train", "./model/bsrt_small_realworld.pth",
+                "--root", "/media/baran/DATA/datasets/BURST_SR/burstsr_dataset",
+                "--finetune",
+                "--finetune_upconv",
+                "--reconstruction_loss_factor",
+                "--fp16",
+            ],
+            "name": "Train-BSRT-small",
+            "type": "python",
+            "request": "launch",
+            "program": "${cwd}/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}

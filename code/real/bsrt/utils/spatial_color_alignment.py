@@ -47,7 +47,7 @@ def apply_kernel(im, ksz, gauss_kernel):
 
 def match_colors(im_ref, im_q, im_test, ksz, gauss_kernel):
     """ Estimates a color transformation matrix between im_ref and im_q. Applies the estimated transformation to
-        im_test
+        im_test. ref: GT, q: _burst[0], im_test: SR 
     """
     gauss_kernel = gauss_kernel.to(im_ref.device)
     bi = 5
@@ -63,6 +63,7 @@ def match_colors(im_ref, im_q, im_test, ksz, gauss_kernel):
     c_mat_all = []
     for ir, iq in zip(im_ref_mean_re, im_q_mean_re):
         c = torch.lstsq(ir.t(), iq.t())
+        # First 3 rows contain the solution (from torch.lstsq doc.)
         c = c.solution[:3]
         c_mat_all.append(c)
 

@@ -166,13 +166,17 @@ class AlignedL1(nn.Module):
 
             valid = valid[..., self.boundary_ignore:-self.boundary_ignore, self.boundary_ignore:-self.boundary_ignore]
 
+        # Returns the tensor with contiguous memory format
         pred_warped_m = pred_warped_m.contiguous()
         gt = gt.contiguous()
         # Estimate MSE
         l1 = F.l1_loss(pred_warped_m, gt, reduction='none')
 
         eps = 1e-12
+        # Numel: NUMber of ELements
         elem_ratio = l1.numel() / valid.numel()
+        # # TODO: Test without valid?
+        # print(f"Valid color conversions: {valid.float().sum()}/{valid.numel()}")
         l1 = (l1 * valid.float()).sum() / (valid.float().sum()*elem_ratio + eps)
 
         return l1
@@ -222,6 +226,7 @@ class AlignedL2(nn.Module):
 
         eps = 1e-12
         elem_ratio = mse.numel() / valid.numel()
+        # print(f"Valid color conversions: {valid.float().sum()}/{valid.numel()}")
         mse = (mse * valid.float()).sum() / (valid.float().sum()*elem_ratio + eps)
 
         ss = ssim(pred_warped_m.contiguous(), gt.contiguous(), data_range=1.0, size_average=True)
