@@ -139,7 +139,7 @@ class Trainer():
             
             loss = self.aligned_loss(sr, gt, burst)
             kl_loss = self.kl_divergence(mu, log_var)
-            loss = self.args.reconstruction_loss_factor * loss + kl_loss
+            loss = self.args.reconstruction_loss_factor * loss + 0.1 * kl_loss
 
             if self.args.n_GPUs > 1:
                 torch.distributed.barrier()

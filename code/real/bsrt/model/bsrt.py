@@ -393,14 +393,14 @@ class ResNet18Dec(nn.Module):
         self.in_planes = 512
 
         self.linear = nn.Linear(z_dim, 512)
-        
+        self.linear2 = nn.Linear(512, 10*10*512)
         self.layer4 = self._make_layer(BasicBlockDec, 256, num_Blocks[3], stride=2)
         self.layer3 = self._make_layer(BasicBlockDec, 128, num_Blocks[2], stride=2)
         self.layer2 = self._make_layer(BasicBlockDec, 64, num_Blocks[1], stride=2)
-        self.layer1 = self._make_layer(BasicBlockDec, 64, num_Blocks[0], stride=1)
-        self.layer0 = nn.Conv2d(64, 100, 3, 1, 1, bias=True)
-        self.conv1 = ResizeConv2d(64, nc*4, kernel_size=3, scale_factor=2)
-        self.subpix = nn.PixelShuffle(2)
+        self.layer1 = self._make_layer(BasicBlockDec, 60, num_Blocks[0], stride=1)
+        # self.layer0 = nn.Conv2d(64, 100, 3, 1, 1, bias=True)
+        self.conv1 = ResizeConv2d(64, nc, kernel_size=3, scale_factor=2)
+        # SR - extra upsample
 
     def _make_layer(self, BasicBlockDec, planes, num_Blocks, stride):
         strides = [stride] + [1]*(num_Blocks-1)
@@ -412,18 +412,15 @@ class ResNet18Dec(nn.Module):
 
     def forward(self, z):
         x = self.linear(z)
-        x = x.view(z.size(0), 512, 1, 1)
-        x = F.interpolate(x, scale_factor=4)
+        x = self.linear2(x)
+        x = x.view(z.size(0), 512, 10, 10)
+        # x = F.interpolate(x, scale_factor=2)
         x = self.layer4(x)
         x = self.layer3(x)
         x = self.layer2(x)
         x = self.layer1(x)
-        # Fix wrong size
-        x = self.layer0(x)
-        x = x.view(x.size(0), 64, 40, 40)
+        # TODO: Remove sigmoid since it makes the output bounded?
         x = torch.sigmoid(self.conv1(x))
-        x = self.subpix(x)
-        # x = x.view(x.size(0), 60, 80, 80)
         return x
 
 class SRVAE(nn.Module):
