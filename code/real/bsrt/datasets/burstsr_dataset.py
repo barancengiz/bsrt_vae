@@ -289,6 +289,8 @@ class BurstSRDataset(torch.utils.data.Dataset):
         return len(self.burst_list)
 
     def __getitem__(self, index):
+        """ Read -> transpose (2, 0, 1) -> crop -> normalize -> subtract black
+        """        
         # Sample the images in the burst, in case a burst_size < 14 is used.
         im_ids = self._sample_images()
 

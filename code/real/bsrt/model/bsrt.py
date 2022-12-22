@@ -393,11 +393,12 @@ class ResNet18Dec(nn.Module):
         self.in_planes = 512
 
         self.linear = nn.Linear(z_dim, 512)
-        self.linear2 = nn.Linear(512, 10*10*512)
+        self.linear2 = nn.Linear(512, 20*20*512)
         self.layer4 = self._make_layer(BasicBlockDec, 256, num_Blocks[3], stride=2)
         self.layer3 = self._make_layer(BasicBlockDec, 128, num_Blocks[2], stride=2)
         self.layer2 = self._make_layer(BasicBlockDec, 64, num_Blocks[1], stride=2)
-        self.layer1 = self._make_layer(BasicBlockDec, 60, num_Blocks[0], stride=1)
+        self.layer1 = self._make_layer(BasicBlockDec, 64, num_Blocks[0], stride=1)
+        # self.lrelu = nn.LeakyReLU(0.1, inplace=True)
         # self.layer0 = nn.Conv2d(64, 100, 3, 1, 1, bias=True)
         self.conv1 = ResizeConv2d(64, nc, kernel_size=3, scale_factor=2)
         # SR - extra upsample
@@ -413,34 +414,37 @@ class ResNet18Dec(nn.Module):
     def forward(self, z):
         x = self.linear(z)
         x = self.linear2(x)
-        x = x.view(z.size(0), 512, 10, 10)
+        x = x.view(z.size(0), 512, 20, 20)
         # x = F.interpolate(x, scale_factor=2)
         x = self.layer4(x)
         x = self.layer3(x)
         x = self.layer2(x)
         x = self.layer1(x)
         # TODO: Remove sigmoid since it makes the output bounded?
-        x = torch.sigmoid(self.conv1(x))
+        # x = torch.sigmoid(self.conv1(x))
+        x = self.conv1(x)
         return x
 
 class SRVAE(nn.Module):
 
     def __init__(self, z_dim, embed_dim, num_feat, n_colors):
         super().__init__()
-        self.encoder = ResNet18Enc(z_dim=z_dim, nc=60)
-        self.decoder = ResNet18Dec(z_dim=z_dim, nc=60)
+        self.encoder = ResNet18Enc(z_dim=z_dim, nc=64)
+        self.decoder = ResNet18Dec(z_dim=z_dim, nc=64)
         self.upsample = nn.PixelShuffle(2)
-        self.upconv1 = nn.Conv2d(embed_dim, num_feat * 4, 3, 1, 1, bias=True)
-        self.upconv2 = nn.Conv2d(num_feat, n_colors * 4, 3, 1, 1, bias=True)
+        # self.upconv1 = nn.Conv2d(embed_dim, num_feat * 4, 3, 1, 1, bias=True)
+        # self.upconv2 = nn.Conv2d(num_feat, n_colors * 4, 3, 1, 1, bias=True)
+        self.upconv3 = nn.Conv2d(64, n_colors * 4, 3, 1, 1, bias=True)
         self.lrelu = nn.LeakyReLU(0.1, inplace=True)
     
     def forward(self, x):
         self.mu, self.log_var = self.encoder(x)
         z = self.reparameterize(self.mu, self.log_var)
         x = self.decoder(z)
-        x = self.lrelu(self.upsample(self.upconv1(x)))
-        x = self.upsample(self.upconv2(x))
-        return x, z, self.mu, self.log_var
+        # x = self.lrelu(self.upsample(self.upconv1(x)))
+        x = self.upsample(self.upconv3(x))
+        # x = self.upsample(self.upconv2(x))
+        return x, self.mu, self.log_var
     
     @staticmethod
     def reparameterize(mu, log_var):
@@ -480,7 +484,7 @@ class BSRT(nn.Module):
         self.mlp_ratio = mlp_ratio
 
         # TODO: Take as an arg
-        spynet_path='/media/baran/DATA/METU/Burst SR/BSRT/code/real/bsrt/model/spynet_sintel_final-3d2a1287.pth'
+        spynet_path='/media/baran/DATA2/METU/Burst_SR/BSRT/code/real/bsrt/model/spynet_sintel_final-3d2a1287.pth'
         self.spynet = SpyNet(spynet_path, [3, 4, 5])
         self.conv_flow = nn.Conv2d(1, 3, kernel_size=3, stride=1, padding=1)
         self.flow_ps = nn.PixelShuffle(2)
@@ -615,7 +619,7 @@ class BSRT(nn.Module):
         ################################### 6, ResNet-18 VAE ################################################
         # TODO: Get as arg from somewhere
         z_dim = 10
-        self.vae_reconstructor = SRVAE(z_dim, embed_dim, num_feat, args.n_colors)
+        self.vae_reconstructor = SRVAE(z_dim, num_feat*4, num_feat, args.n_colors)
         self.apply(self._init_weights)
 
 
@@ -693,6 +697,9 @@ class BSRT(nn.Module):
         # . -> conv -> shuffle2
         skip2 = self.skip_pixel_shuffle(self.skipup2(skip1))
 
+        # inp_rgb = x[:, 0, [0, 1, 3], :, :].contiguous()
+        # inp_rgb_big = F.interpolate(inp_rgb.view(B, 3, H, W), scale_factor=8, mode='bicubic', align_corners=False)
+        # inp_rgb_big = inp_rgb_big.view(B, -1, H*8, W*8)
         x_ = self.conv_flow(self.flow_ps(x.view(B*N, C, H, W))).view(B, N, -1, H*2, W*2)
         
         # calculate flows
@@ -700,7 +707,6 @@ class BSRT(nn.Module):
 
         #### extract LR features
         x = self.lrelu(self.conv_first(x.view(B*N, -1, H, W)))
-
         L1_fea = self.mid_ps(self.conv_after_pre_layer(self.pre_forward_features(x)))
         _, _, H, W = L1_fea.size()
 
@@ -760,8 +766,13 @@ class BSRT(nn.Module):
         # x = self.conv_last(x)
         
         # Reconstruction - VAE
-        x, z, mu, log_var = self.vae_reconstructor(x)
-        x = skip2 + x
+        x = self.lrelu(self.pixel_shuffle(self.upconv1(x)))
+        x = skip1 + x
+        res, mu, log_var = self.vae_reconstructor(x)
+        x = skip2 + res
+        # x = inp_rgb_big + res
+        # x = res
+        # return x, mu, log_var, skip2, res
         return x, mu, log_var
 
 

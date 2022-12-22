@@ -60,7 +60,7 @@ def main_worker(local_rank, nprocs, args):
 
     tt = []
     psnrs, ssims, lpipss = [], [], []
-    for idx in tqdm(range(len(dataset))):
+    for idx in tqdm(range(len(dataset) // 20)):
         burst_, gt, meta_info_burst, meta_info_gt = dataset[idx]
         burst_ = burst_.unsqueeze(0).cuda()
         gt = gt.unsqueeze(0).cuda()
@@ -70,6 +70,7 @@ def main_worker(local_rank, nprocs, args):
         with torch.no_grad():
             tic = time.time()
             sr, mu, log_var = [x.float() for x in _model(burst_, 0)]
+            # sr, mu, log_var, inp_rgb_big, res = [x.float() for x in _model(burst_, 0)]
             toc = time.time()
             tt.append(toc-tic)
 
@@ -107,6 +108,16 @@ def main_worker(local_rank, nprocs, args):
         sr_ = cv2.cvtColor(sr_, cv2.COLOR_RGB2BGR)
         # cv2.imwrite('{}/{}_bsrt.png'.format(out_dir, name), sr_)
         cv2.imwrite('{}/{}/bsrt.png'.format(out_dir, name), sr_)
+        
+        # inp_rgb_big_ = postprocess_fn.process(inp_rgb_big[0], meta_info_gt)
+        # inp_rgb_big_ = cv2.cvtColor(inp_rgb_big_, cv2.COLOR_RGB2BGR)
+        # # cv2.imwrite('{}/{}_bsrt.png'.format(out_dir, name), sr_)
+        # cv2.imwrite('{}/{}/bic.png'.format(out_dir, name), inp_rgb_big_)
+        
+        # res_ = postprocess_fn.process(res[0], meta_info_gt)
+        # res_ = cv2.cvtColor(res_, cv2.COLOR_RGB2BGR)
+        # # cv2.imwrite('{}/{}_bsrt.png'.format(out_dir, name), sr_)
+        # cv2.imwrite('{}/{}/residual.png'.format(out_dir, name), res_)
 
         del burst_
         del sr

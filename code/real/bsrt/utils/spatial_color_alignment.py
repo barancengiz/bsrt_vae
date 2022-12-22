@@ -59,24 +59,25 @@ def match_colors(im_ref, im_q, im_test, ksz, gauss_kernel):
     im_ref_mean_re = im_ref_mean.view(*im_ref_mean.shape[:2], -1)
     im_q_mean_re = im_q_mean.view(*im_q_mean.shape[:2], -1)
 
-    # Estimate color transformation matrix by minimizing the least squares error
-    c_mat_all = []
-    for ir, iq in zip(im_ref_mean_re, im_q_mean_re):
-        c = torch.lstsq(ir.t(), iq.t())
-        # First 3 rows contain the solution (from torch.lstsq doc.)
-        c = c.solution[:3]
-        c_mat_all.append(c)
+    # # Estimate color transformation matrix by minimizing the least squares error
+    # c_mat_all = []
+    # for ir, iq in zip(im_ref_mean_re, im_q_mean_re):
+    #     c = torch.lstsq(ir.t(), iq.t())
+    #     # First 3 rows contain the solution (from torch.lstsq doc.)
+    #     c = c.solution[:3]
+    #     c_mat_all.append(c)
 
-    c_mat = torch.stack(c_mat_all, dim=0)
-    im_q_mean_conv = torch.matmul(im_q_mean_re.permute(0, 2, 1), c_mat).permute(0, 2, 1)
-    im_q_mean_conv = im_q_mean_conv.view(im_q_mean.shape)
+    # c_mat = torch.stack(c_mat_all, dim=0)
+    # im_q_mean_conv = torch.matmul(im_q_mean_re.permute(0, 2, 1), c_mat).permute(0, 2, 1)
+    # im_q_mean_conv = im_q_mean_conv.view(im_q_mean.shape)
 
-    err = ((im_q_mean_conv - im_ref_mean) * 255.0).norm(dim=1)
+    # err = ((im_q_mean_conv - im_ref_mean) * 255.0).norm(dim=1)
 
-    thresh = 20
+    # thresh = 20
 
-    # If error is larger than a threshold, ignore these pixels
-    valid = err < thresh
+    # # If error is larger than a threshold, ignore these pixels
+    # valid = err < thresh
+    valid = torch.ones_like(im_ref_mean).norm(dim=1)
 
     pad = (im_q.shape[-1] - valid.shape[-1]) // 2
     pad = [pad, pad, pad, pad]
@@ -88,7 +89,8 @@ def match_colors(im_ref, im_q, im_test, ksz, gauss_kernel):
 
     # Apply the transformation to test image
     im_test_re = im_test.view(*im_test.shape[:2], -1)
-    im_t_conv = torch.matmul(im_test_re.permute(0, 2, 1), c_mat).permute(0, 2, 1)
+    # im_t_conv = torch.matmul(im_test_re.permute(0, 2, 1), c_mat).permute(0, 2, 1)
+    im_t_conv = im_test_re
     im_t_conv = im_t_conv.view(im_test.shape)
 
     return im_t_conv, valid

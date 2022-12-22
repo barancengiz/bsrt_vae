@@ -132,11 +132,11 @@ class Model(nn.Module):
                 param.requires_grad = False
             for param in self.model.vae_reconstructor.parameters():
                 param.requires_grad = True
-            # # Removed just in case
-            # for param in self.model.HRconv.parameters():
-            #     param.requires_grad = True
-            # for param in self.model.conv_last.parameters():
-            #     param.requires_grad = True
+            # Removed just in case
+            for param in self.model.HRconv.parameters():
+                param.requires_grad = True
+            for param in self.model.conv_last.parameters():
+                param.requires_grad = True
 
         if self.args.finetune_prelayer:
             if self.args.local_rank == 0:
