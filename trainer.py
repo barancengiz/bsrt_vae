@@ -61,7 +61,7 @@ class Trainer():
         self.postprocess_fn = BurstSRPostProcess(return_np=True)
 
         self.alignment_net = PWCNet(load_pretrained=True,
-                           weights_path='./pwcnet/pwcnet-network-default.pth')
+                           weights_path='/workspace/pretrained/pwcnet-network-default.pth')
         self.alignment_net = self.alignment_net.to('cuda')
         for param in self.alignment_net.parameters():
             param.requires_grad = False

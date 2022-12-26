@@ -422,7 +422,7 @@ class ResNet18Dec(nn.Module):
         x = self.layer1(x)
         # TODO: Remove sigmoid since it makes the output bounded?
         x = torch.sigmoid(self.conv1(x))
-        x = self.conv1(x)
+        # x = self.conv1(x)
         return x
 
 class SRVAE(nn.Module):
