@@ -39,7 +39,7 @@ def main_worker(local_rank, nprocs, args):
     torch.cuda.set_device(local_rank)
     print(args.root)
     dataset = BurstSRDataset(root=args.root, burst_size=14, crop_sz=80, split='val')
-    out_dir = 'val/bsrt_real'
+    out_dir = 'val/bsrt_real_vae'
 
     _model = model.Model(args, checkpoint)
 
@@ -69,7 +69,8 @@ def main_worker(local_rank, nprocs, args):
 
         with torch.no_grad():
             tic = time.time()
-            sr = _model(burst_, 0).float()
+            sr, mu, log_var = [x.float() for x in _model(burst_, 0)]
+            # sr, mu, log_var, inp_rgb_big, res = [x.float() for x in _model(burst_, 0)]
             toc = time.time()
             tt.append(toc-tic)
 
@@ -96,6 +97,16 @@ def main_worker(local_rank, nprocs, args):
         sr_ = postprocess_fn.process(sr[0], meta_info_burst)
         sr_ = cv2.cvtColor(sr_, cv2.COLOR_RGB2BGR)
         cv2.imwrite('{}/{}/bsrt.png'.format(out_dir, name), sr_)
+        
+        # inp_rgb_big_ = postprocess_fn.process(inp_rgb_big[0], meta_info_burst)
+        # inp_rgb_big_ = cv2.cvtColor(inp_rgb_big_, cv2.COLOR_RGB2BGR)
+        # # cv2.imwrite('{}/{}_bsrt.png'.format(out_dir, name), sr_)
+        # cv2.imwrite('{}/{}/bic.png'.format(out_dir, name), inp_rgb_big_)
+        
+        # res_ = postprocess_fn.process(res[0], meta_info_burst)
+        # res_ = cv2.cvtColor(res_, cv2.COLOR_RGB2BGR)
+        # # cv2.imwrite('{}/{}_bsrt.png'.format(out_dir, name), sr_)
+        # cv2.imwrite('{}/{}/residual.png'.format(out_dir, name), res_)
 
         del burst_
         del sr

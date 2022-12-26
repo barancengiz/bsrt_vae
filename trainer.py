@@ -61,7 +61,7 @@ class Trainer():
         self.postprocess_fn = BurstSRPostProcess(return_np=True)
 
         self.alignment_net = PWCNet(load_pretrained=True,
-                           weights_path='/workspace/pretrained/pwcnet-network-default.pth')
+                           weights_path='./pwcnet/pwcnet-network-default.pth')
         self.alignment_net = self.alignment_net.to('cuda')
         for param in self.alignment_net.parameters():
             param.requires_grad = False
@@ -114,6 +114,7 @@ class Trainer():
         self.loss.start_log()
 
         # self.test()
+        # Set model mode to train
         self.model.train()
         if self.args.local_rank <= 0:
             timer_data, timer_model, timer_epoch = utility.timer(), utility.timer(), utility.timer()
@@ -122,7 +123,7 @@ class Trainer():
         for batch, batch_value in enumerate(self.loader_train):
 
             burst, gt, meta_info_burst, meta_info_gt = batch_value
-            burst, gt = self.prepare(burst, gt)
+            burst, gt = self.prepare(burst, gt)  # Send to device, sets to half precision if necessary
             # burst = flatten_raw_image_batch(burst_)
 
             if self.args.local_rank == 0:
@@ -131,12 +132,14 @@ class Trainer():
 
             if self.args.fp16:
                 with autocast():
-                    sr = self.model(burst, 0).float()
+                    sr, mu, log_var = [x.float() for x in self.model(burst, 0)]
                     # loss = self.aligned_loss(sr, gt, burst)
             else:
-                sr = self.model(burst, 0)
+                sr, mu, log_var = self.model(burst, 0)
             
             loss = self.aligned_loss(sr, gt, burst)
+            kl_loss = self.kl_divergence(mu, log_var)
+            loss = self.args.reconstruction_loss_factor * loss + 0.0001 * kl_loss
 
             if self.args.n_GPUs > 1:
                 torch.distributed.barrier()
@@ -149,7 +152,7 @@ class Trainer():
             if self.args.fp16:
                 self.scaler.scale(loss).backward()
                 # torch.nn.utils.clip_grad_value_(self.model.parameters(), .01)
-                if torch.isinf(sr).sum() + torch.isnan(sr).sum() <= 0:
+                if torch.isinf(sr).sum() + torch.isnan(sr).sum() <= 0:  # If there is no problem, step & update
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                 else:
@@ -166,17 +169,22 @@ class Trainer():
                     print(f'Nan num: {torch.isnan(sr).sum()}, inf num: {torch.isinf(sr).sum()}')
                     reduced_loss = None
 
+            # TODO: Add wandb
             if self.args.local_rank == 0:
                 timer_model.hold()
                 if epoch % 1 == 0 and batch % 10 == 0:
                     self.writer.add_scalars('Loss', {tfboard_name + '_mse_L1': reduced_loss.detach().cpu().numpy()},
                                             self.glob_iter)
+                    self.writer.add_scalars('KL loss', {tfboard_name + '_kl_loss': kl_loss.detach().cpu().numpy()},
+                                            self.glob_iter)
+
 
                 if (batch + 1) % self.args.print_every == 0:
                     self.ckp.write_log('[{}/{}]\t[{:.4f}]\t{:.1f}+{:.1f}s'.format(
                         (batch + 1) * self.args.batch_size,
                         len(self.loader_train.dataset),
                         reduced_loss.item(),
+                        kl_loss.item(),
                         timer_model.release(),
                         timer_data.release()))
 
@@ -250,14 +258,15 @@ class Trainer():
                     for b in bursts:
                         if self.args.fp16:
                             with autocast():
-                                sr = self.model(b, 0).float()
+                                sr, mu, log_var = [x.float() for x in self.model(b, 0)]
                         else:
-                            sr = self.model(b, 0).float()
+                            sr, mu, log_var = [x.float() for x in self.model(b, 0)]
                         srs.append(sr)
                     sr = ttadown(srs)
                     
                 # sr_int = (sr.clamp(0.0, 1.0) * 2 ** 14).short()
                 # sr = sr_int.float() / (2 ** 14)
+                # TODO: Wandb
                 score, ssim_score, lpips_score = self.aligned_psnr_fn(sr, gt, burst)
 
                 if self.args.n_GPUs > 1:
@@ -336,3 +345,7 @@ class Trainer():
         else:
             epoch = self.optimizer.get_last_epoch() + 1
             return epoch >= self.args.epochs
+
+    def kl_divergence(self, mu, log_var):
+        kl_loss = -0.5*(1 + log_var - mu**2 - torch.exp(log_var))
+        return kl_loss.sum(dim=1).sum(dim=0)
