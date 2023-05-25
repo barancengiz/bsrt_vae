@@ -427,22 +427,22 @@ class ResNet18Dec(nn.Module):
 
 class SRVAE(nn.Module):
 
-    def __init__(self, z_dim, embed_dim, num_feat, n_colors):
+    def __init__(self, z_dim):
         super().__init__()
         self.encoder = ResNet18Enc(z_dim=z_dim, nc=64)
         self.decoder = ResNet18Dec(z_dim=z_dim, nc=64)
-        self.upsample = nn.PixelShuffle(2)
+        # self.upsample = nn.PixelShuffle(2)
         # self.upconv1 = nn.Conv2d(embed_dim, num_feat * 4, 3, 1, 1, bias=True)
         # self.upconv2 = nn.Conv2d(num_feat, n_colors * 4, 3, 1, 1, bias=True)
-        self.upconv3 = nn.Conv2d(64, n_colors * 4, 3, 1, 1, bias=True)
-        self.lrelu = nn.LeakyReLU(0.1, inplace=True)
+        # self.upconv3 = nn.Conv2d(64, n_colors * 4, 3, 1, 1, bias=True)
+        # self.lrelu = nn.LeakyReLU(0.1, inplace=True)
     
     def forward(self, x):
         self.mu, self.log_var = self.encoder(x)
         z = self.reparameterize(self.mu, self.log_var)
         x = self.decoder(z)
         # x = self.lrelu(self.upsample(self.upconv1(x)))
-        x = self.upsample(self.upconv3(x))
+        # x = self.upsample(self.upconv3(x))
         # x = self.upsample(self.upconv2(x))
         return x, self.mu, self.log_var
     
@@ -618,7 +618,7 @@ class BSRT(nn.Module):
         ################################### 6, ResNet-18 VAE ################################################
         # TODO: Get as arg from somewhere
         z_dim = 10
-        self.vae_reconstructor = SRVAE(z_dim, num_feat*4, num_feat, args.n_colors)
+        self.vae = SRVAE(z_dim)
         self.apply(self._init_weights)
 
 
@@ -756,21 +756,17 @@ class BSRT(nn.Module):
 
         x = self.lrelu(self.conv_after_body(self.forward_features(x))) + x
 
-        # # Reconstruction - Swin
-        # x = self.lrelu(self.pixel_shuffle(self.upconv1(x)))
-        # x = skip1 + x
-        # x = self.lrelu(self.pixel_shuffle(self.upconv2(x)))
-        # x = self.lrelu(self.HRconv(x))
-        # x = self.conv_last(x)
-        
-        # Reconstruction - VAE
-        x = self.lrelu(self.pixel_shuffle(self.upconv1(x)))
+        # Latent denoising - VAE
+        vae_out, mu, log_var = self.vae(x)
+
+        # Reconstruction - Swin
+        x = self.lrelu(self.pixel_shuffle(self.upconv1(vae_out)))
         x = skip1 + x
-        res, mu, log_var = self.vae_reconstructor(x)
-        x = skip2 + res
-        # x = inp_rgb_big + res
-        # x = res
-        # return x, mu, log_var, skip2, res
+        x = self.lrelu(self.pixel_shuffle(self.upconv2(x)))
+        x = self.lrelu(self.HRconv(x))
+        x = self.conv_last(x)
+
+        x = skip2 + x
         return x, mu, log_var
 
 
