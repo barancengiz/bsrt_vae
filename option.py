@@ -53,7 +53,7 @@ parser.add_argument('--use_checkpoint', action='store_true',
                     help='use use_checkpoint in swin transformer')
 
 # Data specifications
-parser.add_argument('--root', type=str, default='/data/dataset/ntire21/burstsr/real',
+parser.add_argument('--root', type=str, default='/workspace/burstsr_dataset/',
                     help='dataset directory')
 parser.add_argument('--val_root', type=str, default='../test_set',
                     help='dataset directory')
