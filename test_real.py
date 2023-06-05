@@ -69,7 +69,8 @@ def main_worker(local_rank, nprocs, args):
 
         with torch.no_grad():
             tic = time.time()
-            sr, mu, log_var = [x.float() for x in _model(burst_, 0)]
+            sr, mu, log_var, vae_in, vae_out, skip2 = [
+                x.float() for x in _model(burst_, 0)]
             # sr, mu, log_var, inp_rgb_big, res = [x.float() for x in _model(burst_, 0)]
             toc = time.time()
             tt.append(toc-tic)
