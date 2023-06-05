@@ -9,6 +9,7 @@ import random
 
 import torch
 from tensorboardX import SummaryWriter
+import wandb
 from pwcnet.pwcnet import PWCNet
 
 from utils.postprocessing_functions import BurstSRPostProcess
@@ -61,15 +62,17 @@ class Trainer():
         self.postprocess_fn = BurstSRPostProcess(return_np=True)
 
         self.alignment_net = PWCNet(load_pretrained=True,
-                           weights_path='/workspace/pretrained/pwcnet-network-default.pth')
+                                    weights_path='/workspace/pretrained/pwcnet-network-default.pth')
         self.alignment_net = self.alignment_net.to('cuda')
         for param in self.alignment_net.parameters():
             param.requires_grad = False
 
-        self.aligned_psnr_fn = AlignedPSNR(alignment_net=self.alignment_net, boundary_ignore=40)
+        self.aligned_psnr_fn = AlignedPSNR(
+            alignment_net=self.alignment_net, boundary_ignore=40)
 
         if 'L1' in args.loss:
-            self.aligned_loss = AlignedL1(alignment_net=self.alignment_net, boundary_ignore=40)
+            self.aligned_loss = AlignedL1(
+                alignment_net=self.alignment_net, boundary_ignore=40)
 
         if self.args.fp16:
             self.scaler = GradScaler()
@@ -99,6 +102,10 @@ class Trainer():
         utility.mkdir(self.log_dir)
         utility.mkdir('frames')
 
+        # Initialize wandb
+        wandb.login(key="2c24ae6fae2a25489cbdd61ade1c7d97af2e7547")
+        wandb.init(project="burstsr_latent_vae", config=args)
+        wandb.watch(self.model)
 
     def train(self):
         self.loss.step()
@@ -121,9 +128,9 @@ class Trainer():
             timer_epoch.tic()
 
         for batch, batch_value in enumerate(self.loader_train):
-
             burst, gt, meta_info_burst, meta_info_gt = batch_value
-            burst, gt = self.prepare(burst, gt)  # Send to device, sets to half precision if necessary
+            # Send to device, sets to half precision if necessary
+            burst, gt = self.prepare(burst, gt)
             # burst = flatten_raw_image_batch(burst_)
 
             if self.args.local_rank == 0:
@@ -132,14 +139,19 @@ class Trainer():
 
             if self.args.fp16:
                 with autocast():
-                    sr, mu, log_var = [x.float() for x in self.model(burst, 0)]
+                    sr, mu, log_var, vae_in, vae_out, skip2 = [
+                        x.float() for x in self.model(burst, 0)]
                     # loss = self.aligned_loss(sr, gt, burst)
             else:
                 sr, mu, log_var = self.model(burst, 0)
-            
-            loss = self.aligned_loss(sr, gt, burst)
+
+            vae_kl_loss_factor = 0.0002
+            # loss = self.aligned_loss(sr, gt, burst)
+            loss = 0
+            vae_reconstr_loss = F.mse_loss(vae_in, vae_out)
             kl_loss = self.kl_divergence(mu, log_var)
-            loss = self.args.reconstruction_loss_factor * loss + 0.0001 * kl_loss
+            loss = self.args.reconstruction_loss_factor * loss + \
+                (vae_kl_loss_factor * kl_loss + vae_reconstr_loss)
 
             if self.args.n_GPUs > 1:
                 torch.distributed.barrier()
@@ -152,11 +164,13 @@ class Trainer():
             if self.args.fp16:
                 self.scaler.scale(loss).backward()
                 # torch.nn.utils.clip_grad_value_(self.model.parameters(), .01)
-                if torch.isinf(sr).sum() + torch.isnan(sr).sum() <= 0:  # If there is no problem, step & update
+                # If there is no problem, step & update
+                if torch.isinf(sr).sum() + torch.isnan(sr).sum() <= 0:
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                 else:
-                    print(f'Nan num: {torch.isnan(sr).sum()}, inf num: {torch.isinf(sr).sum()}')
+                    print(
+                        f'Nan num: {torch.isnan(sr).sum()}, inf num: {torch.isinf(sr).sum()}')
                     reduced_loss = None
                     os._exit(0)
                     sys.exit(0)
@@ -166,18 +180,23 @@ class Trainer():
                 if torch.isinf(sr).sum() + torch.isnan(sr).sum() <= 0:
                     self.optimizer.step()
                 else:
-                    print(f'Nan num: {torch.isnan(sr).sum()}, inf num: {torch.isinf(sr).sum()}')
+                    print(
+                        f'Nan num: {torch.isnan(sr).sum()}, inf num: {torch.isinf(sr).sum()}')
                     reduced_loss = None
 
-            # TODO: Add wandb
             if self.args.local_rank == 0:
                 timer_model.hold()
                 if epoch % 1 == 0 and batch % 10 == 0:
-                    self.writer.add_scalars('Loss', {tfboard_name + '_mse_L1': reduced_loss.detach().cpu().numpy()},
-                                            self.glob_iter)
-                    self.writer.add_scalars('KL loss', {tfboard_name + '_kl_loss': kl_loss.detach().cpu().numpy()},
-                                            self.glob_iter)
-
+                    # self.writer.add_scalars('Loss', {tfboard_name + '_mse_L1': reduced_loss.detach().cpu().numpy()},
+                    #                         self.glob_iter)
+                    # self.writer.add_scalars('KL loss', {tfboard_name + '_kl_loss': kl_loss.detach().cpu().numpy()},
+                    #                         self.glob_iter)
+                    # self.writer.add_scalars('VAE reconst loss', {tfboard_name + '_vae_reconstr_loss': vae_reconstr_loss.detach().cpu().numpy()},
+                    #                         self.glob_iter)
+                    wandb.log({"epoch": epoch, "total_loss": loss.detach().cpu().numpy(), "kl_loss": kl_loss.detach(
+                    ).cpu().numpy(), "vae_mse": vae_reconstr_loss.detach().cpu().numpy()}, step=self.glob_iter)
+                    # Generate image
+                    self.test()
 
                 if (batch + 1) % self.args.print_every == 0:
                     self.ckp.write_log('[{}/{}]\t[{:.4f}]\t{:.1f}+{:.1f}s'.format(
@@ -196,10 +215,10 @@ class Trainer():
                     filename = exp_name + '_latest' + '.pth'
                     self.save_model(filename)
 
-
         if self.args.local_rank <= 0:
             timer_epoch.hold()
-            print('Epoch {} cost time: {:.1f}s, lr: {:5f}'.format(epoch, timer_epoch.release(), lr))
+            print('Epoch {} cost time: {:.1f}s, lr: {:5f}'.format(
+                epoch, timer_epoch.release(), lr))
             if (epoch) % 1 == 0 and not self.args.test_only:
                 filename = exp_name + '_epoch_' + str(epoch) + '.pth'
                 self.save_model(filename)
@@ -244,9 +263,15 @@ class Trainer():
             total_ssim = 0
             total_lpips = 0
             count = 0
+
+            # Log some images
+            in_images = []
+            sr_images = []
+            skip_images = []
             for i, batch_value in tqdm(enumerate(self.loader_valid)):
 
                 burst, gt, meta_info_burst, meta_info_gt = batch_value
+                # Sends model to device, convert to fp16 if necessary
                 burst, gt = self.prepare(burst, gt)
 
                 # burst_ = flatten_raw_image_batch(burst)
@@ -255,49 +280,62 @@ class Trainer():
 
                 with torch.no_grad():
                     srs = []
+                    skips = []
                     for b in bursts:
                         if self.args.fp16:
                             with autocast():
-                                sr, mu, log_var = [x.float() for x in self.model(b, 0)]
+                                sr, mu, log_var, vae_in, vae_out, skip2 = [
+                                    x.float() for x in self.model(b, 0)]
                         else:
-                            sr, mu, log_var = [x.float() for x in self.model(b, 0)]
+                            sr, mu, log_var, vae_in, vae_out, skip2 = [
+                                x.float() for x in self.model(b, 0)]
                         srs.append(sr)
+                        skips.append(skip2)
                     sr = ttadown(srs)
-                    
+                    skip = ttadown(skips)
+
                 # sr_int = (sr.clamp(0.0, 1.0) * 2 ** 14).short()
                 # sr = sr_int.float() / (2 ** 14)
-                # TODO: Wandb
-                score, ssim_score, lpips_score = self.aligned_psnr_fn(sr, gt, burst)
+                score, ssim_score, lpips_score = self.aligned_psnr_fn(
+                    sr, gt, burst)
 
                 if self.args.n_GPUs > 1:
                     torch.distributed.barrier()
                     score = utility.reduce_mean(score, self.args.n_GPUs)
-                    ssim_score = utility.reduce_mean(ssim_score, self.args.n_GPUs)
-                    lpips_score = utility.reduce_mean(lpips_score, self.args.n_GPUs)
+                    ssim_score = utility.reduce_mean(
+                        ssim_score, self.args.n_GPUs)
+                    lpips_score = utility.reduce_mean(
+                        lpips_score, self.args.n_GPUs)
 
                 total_psnr += score
                 total_ssim += ssim_score
                 total_lpips += lpips_score
                 count += 1
 
-                # # if i > 3 and i < 6 and self.args.local_rank == 0:
-                # if i > 200 and i < 400 and self.args.local_rank <= 0:
-                #     meta_info_gt = convert_dict(meta_info_gt, burst.shape[0])
-                #     meta_info_burst = convert_dict(meta_info_burst, burst.shape[0])
-                #     # Apply simple post-processing to obtain RGB images
+                # if i > 3 and i < 6 and self.args.local_rank == 0:
+                if i > 3 and i < 6 and self.args.local_rank <= 0:
+                    meta_info_gt = convert_dict(meta_info_gt, burst.shape[0])
+                    meta_info_burst = convert_dict(
+                        meta_info_burst, burst.shape[0])
+                    # Apply simple post-processing to obtain RGB images
 
-                #     in_ = demosaic(burst[0][0])
-                #     in_ = self.postprocess_fn.process(in_, meta_info_burst[0])
-                #     sr_ = self.postprocess_fn.process(sr[0], meta_info_gt[0])
-                #     # gt_ = self.postprocess_fn.process(gt[0], meta_info_gt[0])
+                    in_ = demosaic(burst[0][0])
+                    in_ = self.postprocess_fn.process(in_, meta_info_burst[0])
+                    sr_ = self.postprocess_fn.process(sr[0], meta_info_gt[0])
+                    skip_ = self.postprocess_fn.process(
+                        skip[0], meta_info_gt[0])
+                    # gt_ = self.postprocess_fn.process(gt[0], meta_info_gt[0])
 
-                #     in_ = cv2.cvtColor(in_, cv2.COLOR_RGB2BGR)
-                #     sr_ = cv2.cvtColor(sr_, cv2.COLOR_RGB2BGR)
-                #     # gt_ = cv2.cvtColor(gt_, cv2.COLOR_RGB2BGR)
+                    # in_ = cv2.cvtColor(in_, cv2.COLOR_RGB2BGR)
+                    # sr_ = cv2.cvtColor(sr_, cv2.COLOR_RGB2BGR)
+                    # gt_ = cv2.cvtColor(gt_, cv2.COLOR_RGB2BGR)
 
-                #     cv2.imwrite('frames/{}_in.png'.format(i), in_)
-                #     cv2.imwrite('frames/{}_gt.png'.format(i), gt_)
-                #     cv2.imwrite('frames/{}_sr.png'.format(i), sr_)
+                    # cv2.imwrite('frames/{}_in.png'.format(i), in_)
+                    # cv2.imwrite('frames/{}_gt.png'.format(i), gt_)
+                    # cv2.imwrite('frames/{}_sr.png'.format(i), sr_)
+                    in_images.append(in_)
+                    sr_images.append(sr_)
+                    skip_images.append(skip_)
 
             total_psnr = total_psnr / count
             total_ssim = total_ssim / count
@@ -305,16 +343,27 @@ class Trainer():
 
             if self.args.local_rank == 0:
                 print("[Epoch: {}]\n[PSNR: {:.4f}][SSIM: {:.4f}][LPIPS: {:.4f}][Best PSNR: {:.4f}][Best Epoch: {}]"
-                    .format(epoch, total_psnr, total_ssim, total_lpips, self.best_psnr, self.best_epoch))
+                      .format(epoch, total_psnr, total_ssim, total_lpips, self.best_psnr, self.best_epoch))
                 if epoch >= 1 and total_psnr > self.best_psnr:
                     self.best_psnr = total_psnr
                     self.best_epoch = epoch
                     filename = exp_name + 'best_epoch.pth'
                     self.save_model(filename)
-                self.writer.add_scalars('PSNR', {tfboard_name + '_PSNR': total_psnr}, self.glob_iter)
+                self.writer.add_scalars(
+                    'PSNR', {tfboard_name + '_PSNR': total_psnr}, self.glob_iter)
 
                 print('Forward: {:.2f}s\n'.format(timer_test.toc()))
+                # Log val results
+                wandb.log({"PSNR_val": total_psnr, "SSIM_val": total_ssim,
+                          "LPIPS_val": total_lpips}, self.glob_iter)
 
+                # Log images
+                wandb.log({"val_in_images": [wandb.Image(
+                    image, caption="Input validation image") for image in in_images]}, self.glob_iter)
+                wandb.log({"val_sr_images": [wandb.Image(
+                    image, caption="Generated validation image") for image in sr_images]}, self.glob_iter)
+                wandb.log({"val_skip_images": [wandb.Image(
+                    image, caption="Generated validation skip image") for image in skip_images]}, self.glob_iter)
         torch.cuda.synchronize()
         torch.set_grad_enabled(True)
         torch.cuda.empty_cache()
@@ -329,10 +378,12 @@ class Trainer():
         torch.save(model.state_dict(), net_save_path)
 
     def prepare(self, *args):
-        device = torch.device('cpu' if self.args.cpu else 'cuda:{}'.format(self.args.local_rank))
+        device = torch.device(
+            'cpu' if self.args.cpu else 'cuda:{}'.format(self.args.local_rank))
 
         def _prepare(tensor):
-            if self.args.precision == 'half': tensor = tensor.half()
+            if self.args.precision == 'half':
+                tensor = tensor.half()
             return tensor.to(device)
 
         # print(_prepare(args[0]).device)

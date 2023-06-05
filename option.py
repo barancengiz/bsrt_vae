@@ -18,12 +18,14 @@ parser.add_argument('--swinfeature', action='store_true',
                     help='use swin transformer to extract features')
 parser.add_argument('--model_level', type=str, default='S',
                     help='S: small, L: large')
-parser.add_argument('--reconstruction_loss_factor', action='store_true',
+parser.add_argument('--reconstruction_loss_factor', type=float, default=0,
                     help='weight of MSE (vs KL divergence)')
 
 ################## fine-tune ##################
 parser.add_argument('--finetune', action='store_true',
                     help='finetune model')
+parser.add_argument('--finetune_vae', action='store_true',
+                    help='only finetune vae model')
 parser.add_argument('--finetune_align', action='store_true',
                     help='finetune alignment module')
 parser.add_argument('--finetune_swin', action='store_true',
@@ -55,7 +57,7 @@ parser.add_argument('--use_checkpoint', action='store_true',
                     help='use use_checkpoint in swin transformer')
 
 # Data specifications
-parser.add_argument('--root', type=str, default='/data/dataset/ntire21/burstsr/real',
+parser.add_argument('--root', type=str, default='/workspace/burstsr_dataset/',
                     help='dataset directory')
 parser.add_argument('--val_root', type=str, default='../test_set',
                     help='dataset directory')

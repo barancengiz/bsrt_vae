@@ -146,6 +146,14 @@ class Model(nn.Module):
             for param in self.model.skipup2.parameters():
                 param.requires_grad = True
 
+        if self.args.finetune_vae:
+            if self.args.local_rank == 0:
+                print('finetune_vae')
+            for param in self.model.parameters():
+                param.requires_grad = False
+            for param in self.model.vae.parameters():
+                param.requires_grad = True
+
         if self.args.finetune_prelayer:
             if self.args.local_rank == 0:
                 print('finetune_prelayer')

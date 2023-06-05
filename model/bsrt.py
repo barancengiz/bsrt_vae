@@ -393,7 +393,7 @@ class ResNet18Dec(nn.Module):
         self.in_planes = 512
 
         self.linear = nn.Linear(z_dim, 512)
-        self.linear2 = nn.Linear(512, 20*20*512)
+        self.linear2 = nn.Linear(512, 10*10*512)
         self.layer4 = self._make_layer(BasicBlockDec, 256, num_Blocks[3], stride=2)
         self.layer3 = self._make_layer(BasicBlockDec, 128, num_Blocks[2], stride=2)
         self.layer2 = self._make_layer(BasicBlockDec, 64, num_Blocks[1], stride=2)
@@ -414,7 +414,7 @@ class ResNet18Dec(nn.Module):
     def forward(self, z):
         x = self.linear(z)
         x = self.linear2(x)
-        x = x.view(z.size(0), 512, 20, 20)
+        x = x.view(z.size(0), 512, 10, 10)
         # x = F.interpolate(x, scale_factor=2)
         x = self.layer4(x)
         x = self.layer3(x)
@@ -429,8 +429,8 @@ class SRVAE(nn.Module):
 
     def __init__(self, z_dim):
         super().__init__()
-        self.encoder = ResNet18Enc(z_dim=z_dim, nc=64)
-        self.decoder = ResNet18Dec(z_dim=z_dim, nc=64)
+        self.encoder = ResNet18Enc(z_dim=z_dim, nc=60)
+        self.decoder = ResNet18Dec(z_dim=z_dim, nc=60)
         # self.upsample = nn.PixelShuffle(2)
         # self.upconv1 = nn.Conv2d(embed_dim, num_feat * 4, 3, 1, 1, bias=True)
         # self.upconv2 = nn.Conv2d(num_feat, n_colors * 4, 3, 1, 1, bias=True)
@@ -754,10 +754,10 @@ class BSRT(nn.Module):
 
         x = self.lrelu(self.fusion(aligned_fea))
 
-        x = self.lrelu(self.conv_after_body(self.forward_features(x))) + x
+        vae_in = self.lrelu(self.conv_after_body(self.forward_features(x))) + x
 
         # Latent denoising - VAE
-        vae_out, mu, log_var = self.vae(x)
+        vae_out, mu, log_var = self.vae(vae_in)
 
         # Reconstruction - Swin
         x = self.lrelu(self.pixel_shuffle(self.upconv1(vae_out)))
@@ -767,7 +767,7 @@ class BSRT(nn.Module):
         x = self.conv_last(x)
 
         x = skip2 + x
-        return x, mu, log_var
+        return x, mu, log_var, vae_in, vae_out, skip2
 
 
     def get_ref_flows(self, x):
